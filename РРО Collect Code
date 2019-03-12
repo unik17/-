@@ -1,0 +1,1037 @@
+Option Explicit
+
+Sub process_RRO()
+Application.ScreenUpdating = False
+Dim RRO_Status, Error_Sum, Error_NPA_Incorrect, Error_Code_RRO, Error_NPA_Exists, GP_Trigger, SP_Trigger, GO_Trigger, KVR_Swich, RzPr_Switch, RzPr_Trigger As Boolean
+Dim MO(43, 5, 4, 1) As Variant
+Dim MO_Subvencii(43, 5, 1, 1)
+Dim Selected_Processing_Mode As String
+' (i,0,0,0) - íàèìåíîâàíèÿ, i ñîîòâåòñòâóåò ïîð. íîìåðó â òàáëèöå
+' (i,òèï ÌÎ 1-5, ïåðèîä 0-4, ïëàí ôàêò 0-1)
+'ÏÅÐÅÌÅÍÍÛÅ ÄËß ÐÀÁÎÒÛ Ñ ÔÀÉËÀÌÈ È ËÎÃÎÌ
+Dim sFolder, sFiles, sFolder_Input, sFiles_Input, sFolder_Output, sFiles_Output, TimeStamp, Status, TimeStampTwo, _
+CodeGP, CodeSP, CodeGO, CodeMR, CodeTOTAL, CodeMR_Subvencii, CodeGO_Subvencii, CodeSP_Subvencii, CodeGP_Subvencii, Duration As String
+Dim TimeStampBegin, TimeStampEnd As Date
+Dim StartX, StartY, EndX, EndY As Single
+'ÏÅÐÅÌÅÍÍÛÅ
+Dim i, j, LogCount, LogLastRow, Current_MO_Index, LastRow, sFiles_Added_Counter, _
+Error_Rows, Merges_Count, MO_Type, Last_Row_NPA_List, Merged_Cells_Count, Last_Row_Whitelist_NPA, Report_First_Line, Report_Error_Col, _
+Plan_Prev_Col, Fact_Prev_Col, Plan_Cur_Col, Plan_PlusOne_Col, Plan_PlusTwo_Col, Plan_PlusThree_Col, KVR_Shift, CheckIfNumber, NPA_Col_One, _
+LastCol, NPA_Col_Two, NPA_Col_Three, NPA_Col_Four, Current_MO_Type(3), k, QRzPr, RzPr_Col As Integer
+Dim Error_Text As String
+Dim RRO_Code_Dec(2) As Integer
+Dim WS As Worksheet
+
+Dim Debug_RzPr As String
+
+'Get the processing mode
+Selected_Processing_Mode = Sheets("1").Cells(1, 8).Value
+If ThisWorkbook.Sheets("1").Cells(3, 8).Value = "Âêë." Then RzPr_Switch = True Else RzPr_Switch = False
+
+ Select Case Selected_Processing_Mode
+    Case "103Í (2016)"
+    Report_First_Line = 25
+    Report_Error_Col = 22
+    Plan_Prev_Col = 14
+    Fact_Prev_Col = 15
+    Plan_Cur_Col = 16
+    Plan_PlusOne_Col = 17
+    Plan_PlusTwo_Col = 18
+    Plan_PlusThree_Col = 19
+    CodeGP = "5000"
+    CodeSP = "4000"
+    CodeGO = "2000"
+    CodeMR = "1000"
+    CodeTOTAL = "8000"
+    CodeMR_Subvencii = "1500"
+    CodeGO_Subvencii = "2500"
+    CodeGP_Subvencii = "4500"
+    CodeSP_Subvencii = "5500"
+    NPA_Col_One = 3
+    NPA_Col_Two = 6
+    NPA_Col_Three = 3
+    NPA_Col_Four = 6
+    
+    Case "103Í (2017)"
+    If ThisWorkbook.Sheets("1").Cells(2, 8).Value = "Âêë." Then KVR_Swich = True
+    If KVR_Swich = True Then KVR_Shift = 2
+    CodeMR = "1000"
+    CodeGO = "2100"
+    CodeGP = "3800"
+    CodeSP = "4900"
+    CodeTOTAL = "8000" 'has to be 7900!!!!!!!!!
+    Report_First_Line = 19
+    Report_Error_Col = 59 + KVR_Shift
+    Plan_Prev_Col = 39 + KVR_Shift
+    Fact_Prev_Col = 40 + KVR_Shift
+    Plan_Cur_Col = 41 + KVR_Shift
+    Plan_PlusOne_Col = 42 + KVR_Shift
+    Plan_PlusTwo_Col = 43 + KVR_Shift
+    Plan_PlusThree_Col = 44 + KVR_Shift
+    CodeMR_Subvencii = "1601"
+    CodeGO_Subvencii = "2601"
+    CodeGP_Subvencii = "4401"
+    CodeSP_Subvencii = "5601"
+    NPA_Col_One = 27
+    NPA_Col_Two = 30
+      NPA_Col_Three = 3
+    NPA_Col_Four = 11
+    RzPr_Col = 37
+    Case Else
+    MsgBox "Íåò òàêîãî ðåæèìà îáðàáîòêè"
+    GoTo FinishHim
+    End Select
+    
+    
+TimeStampBegin = Now()
+
+'ÏÎËÓ×ÅÍÈÅ ÖÅËÅÂÛÕ ÏÀÏÎÊ
+sFolder = Sheets(1).Cells(3, 2).Value
+sFolder = sFolder & IIf(Right(sFolder, 1) = Application.PathSeparator, "", Application.PathSeparator)
+sFolder_Input = sFolder & "âûãðóçêè\"
+sFolder_Output = sFolder & "ðåçóëüòàò\"
+sFiles_Input = Dir(sFolder_Input & "*.xls*")
+'ÇÀÃÐÓÇÊÀ ÈÄ 317 ôîðìà (îáùèå ñóììû + ñóììû ïî ïîäðàçäåëàì), ñóáâåíöèè (îêðóãëåíèå äî ñîòûõ)
+For i = 1 To 43
+    MO(i, 1, 0, 1) = Round(Sheets("2").Cells(i + 7, 5).Value, 2) 'ïëàí ÌÐ 2016
+    MO(i, 1, 0, 0) = Round(Sheets("2").Cells(i + 7, 6).Value, 2) 'ôàêò ÌÐ 2016
+    MO(i, 2, 0, 1) = Round(Sheets("2").Cells(i + 7, 7).Value, 2) 'ïëàí ÃÎ 2016
+    MO(i, 2, 0, 0) = Round(Sheets("2").Cells(i + 7, 8).Value, 2) 'ôàêò ÃÎ 2016
+    MO(i, 3, 0, 1) = Round(Sheets("2").Cells(i + 7, 9).Value, 2) 'ïëàí ÃÏ 2016
+    MO(i, 3, 0, 0) = Round(Sheets("2").Cells(i + 7, 10).Value, 2) 'ôàêò ÃÏ 2016
+    MO(i, 4, 0, 1) = Round(Sheets("2").Cells(i + 7, 11).Value, 2) 'ïëàí ÑÏ 2016
+    MO(i, 4, 0, 0) = Round(Sheets("2").Cells(i + 7, 12).Value, 2) 'ôàêò ÑÏ 2016
+    MO(i, 5, 0, 1) = Round(Sheets("2").Cells(i + 7, 3).Value, 2) 'ïëàí ÈÒÎÃ 2016
+    MO(i, 5, 0, 0) = Round(Sheets("2").Cells(i + 7, 4).Value, 2) 'ôàêò ÈÒÎÃ 2016
+    MO(i, 1, 1, 1) = Round(Sheets("2").Cells(i + 7, 14).Value, 2) 'ïëàí ÃÎ 2017
+    MO(i, 2, 1, 1) = Round(Sheets("2").Cells(i + 7, 15).Value, 2) 'ïëàí ÌÐ 2017
+    MO(i, 3, 1, 1) = Round(Sheets("2").Cells(i + 7, 16).Value, 2) 'ïëàí ÃÏ 2017
+    MO(i, 4, 1, 1) = Round(Sheets("2").Cells(i + 7, 17).Value, 2) 'ïëàí CÏ 2017
+    MO(i, 5, 1, 1) = Round(Sheets("2").Cells(i + 7, 13).Value, 2) 'ïëàí ÈÒÎÃ 2017
+    ' Plan 2016
+    MO_Subvencii(i, 1, 0, 1) = Round(Sheets("5").Cells(i + 3, 12).Value, 2)
+    MO_Subvencii(i, 2, 0, 1) = Round(Sheets("5").Cells(i + 3, 13).Value, 2)
+    MO_Subvencii(i, 3, 0, 1) = Round(Sheets("5").Cells(i + 3, 14).Value, 2)
+    MO_Subvencii(i, 4, 0, 1) = Round(Sheets("5").Cells(i + 3, 15).Value, 2)
+    'fact 2016
+    MO_Subvencii(i, 1, 0, 0) = Round(Sheets("5").Cells(i + 3, 16).Value, 2)
+    MO_Subvencii(i, 2, 0, 0) = Round(Sheets("5").Cells(i + 3, 17).Value, 2)
+    MO_Subvencii(i, 3, 0, 0) = Round(Sheets("5").Cells(i + 3, 18).Value, 2)
+    MO_Subvencii(i, 4, 0, 0) = Round(Sheets("5").Cells(i + 3, 19).Value, 2)
+    'plan 2017
+    MO_Subvencii(i, 1, 1, 1) = Round(Sheets("5").Cells(i + 3, 20).Value, 2)
+    MO_Subvencii(i, 2, 1, 1) = Round(Sheets("5").Cells(i + 3, 21).Value, 2)
+    MO_Subvencii(i, 3, 1, 1) = Round(Sheets("5").Cells(i + 3, 22).Value, 2)
+    MO_Subvencii(i, 4, 1, 1) = Round(Sheets("5").Cells(i + 3, 23).Value, 2)
+Next i
+
+'çàãðóçêà èíôîðìàöèè ïî ïîäðàçäåëàì
+
+QRzPr = Application.WorksheetFunction.Max( _
+ThisWorkbook.Sheets("317 n-1 p").UsedRange.Columns.Count, _
+ThisWorkbook.Sheets("317 n-1 f").UsedRange.Columns.Count, _
+ThisWorkbook.Sheets("317 n p").UsedRange.Columns.Count) - 2
+'MsgBox (QRzPr)
+ReDim MO_RzPr(43, 5, 1, 1, QRzPr) As Variant
+
+
+If RzPr_Switch = True Then
+For k = 1 To QRzPr
+
+Select Case ThisWorkbook.Sheets("317 n-1 p").Cells(4, 2 + k).Value
+Case Is = "Óòâåðæä. - áþäæåòû ìóíèöèïàëüíûõ ðàéîíîâ"
+Current_MO_Type(1) = 1
+Case Is = "Óòâåðæä. - áþäæåòû ãîðîäñêèõ îêðóãîâ"
+Current_MO_Type(1) = 2
+Case Is = "Óòâåðæä. - áþäæåòû ãîðîäñêèõ ïîñåëåíèé"
+Current_MO_Type(1) = 3
+Case Is = "Óòâåðæä. - áþäæåòû ñåëüñêèõ ïîñåëåíèé"
+Current_MO_Type(1) = 4
+End Select
+
+Select Case ThisWorkbook.Sheets("317 n-1 f").Cells(4, 2 + k).Value
+Case Is = "Èñïîëíåíî - áþäæåòû ìóíèöèïàëüíûõ ðàéîíîâ"
+Current_MO_Type(2) = 1
+Case Is = "Èñïîëíåíî - áþäæåòû ãîðîäñêèõ îêðóãîâ"
+Current_MO_Type(2) = 2
+Case Is = "Èñïîëíåíî - áþäæåòû ãîðîäñêèõ ïîñåëåíèé"
+Current_MO_Type(2) = 3
+Case Is = "Èñïîëíåíî - áþäæåòû ñåëüñêèõ ïîñåëåíèé"
+Current_MO_Type(2) = 4
+End Select
+
+Select Case ThisWorkbook.Sheets("317 n p").Cells(4, 2 + k).Value
+Case Is = "Óòâåðæä. - áþäæåòû ìóíèöèïàëüíûõ ðàéîíîâ"
+Current_MO_Type(3) = 1
+Case Is = "Óòâåðæä. - áþäæåòû ãîðîäñêèõ îêðóãîâ"
+Current_MO_Type(3) = 2
+Case Is = "Óòâåðæä. - áþäæåòû ãîðîäñêèõ ïîñåëåíèé"
+Current_MO_Type(3) = 3
+Case Is = "Óòâåðæä. - áþäæåòû ñåëüñêèõ ïîñåëåíèé"
+Current_MO_Type(3) = 4
+
+End Select
+
+
+MO_RzPr(0, 0, 0, 1, k) = CStr(Current_MO_Type(1)) & CStr(ThisWorkbook.Sheets("317 n-1 p").Cells(5, 2 + k).Value)
+MO_RzPr(0, 0, 0, 0, k) = CStr(Current_MO_Type(2)) & CStr(ThisWorkbook.Sheets("317 n-1 f").Cells(5, 2 + k).Value)
+MO_RzPr(0, 0, 1, 1, k) = CStr(Current_MO_Type(3)) & CStr(ThisWorkbook.Sheets("317 n p").Cells(5, 2 + k).Value)
+
+
+For i = 1 To 43
+MO_RzPr(i, Current_MO_Type(1), 0, 1, k) = CDbl(ThisWorkbook.Sheets("317 n-1 p").Cells(i + 6, 2 + k).Value)
+MO_RzPr(i, Current_MO_Type(2), 0, 0, k) = CDbl(ThisWorkbook.Sheets("317 n-1 f").Cells(i + 6, 2 + k).Value)
+MO_RzPr(i, Current_MO_Type(3), 1, 1, k) = CDbl(ThisWorkbook.Sheets("317 n p").Cells(i + 6, 2 + k).Value)
+Next i
+Next k
+End If 'RzPr switch
+
+'For i = 1 To 43 ' òåñò çàãðóçêè äàííûõ ïî ÐçÏð ïî ÌÐ
+'For k = 1 To LastCol
+'ThisWorkbook.Sheets("1111").Cells(i, k).Value = MO_RzPr(i, 1, 0, 1, k)
+'Next k
+'Next i
+'Application.ScreenUpdating = True
+'Stop
+
+
+'MsgBox MO_Subvencii(8, 1, 0, 1)
+'ÇÀÃÐÓÇÊÀ ÍÀÌÅÍÎÂÀÍÈÉ ÌÎ
+For i = 1 To 43
+    MO(i, 0, 0, 0) = Sheets("1").Cells(i + 7, 14).Value
+Next i
+'ÇÀÃÐÓÇÊÀ ÑÏÐÀÂÎ×ÍÈÊÀ ÍÏÀ
+Last_Row_NPA_List = Sheets("3").UsedRange.Row - 1 + Sheets("3").UsedRange.Rows.Count
+ReDim NPA_Control(Last_Row_NPA_List, 4) As String
+For i = 1 To Last_Row_NPA_List
+    For j = 1 To 4
+        NPA_Control(i, j) = Sheets("3").Cells(i + 3, j).Value
+    Next j
+Next i
+Last_Row_Whitelist_NPA = Sheets("4").Cells(2, 2).Value
+ReDim Whitelist_NPA(Last_Row_Whitelist_NPA) As String
+For i = 1 To Last_Row_Whitelist_NPA
+    Whitelist_NPA(i) = Sheets("4").Cells(i + 2, 1).Value
+Next i
+'ÏÅÐÅÁÎÐ ÂÛÃÐÓÇÎÊ
+'--------------------------------------------------------------------------------------------------------------------------
+Do While sFiles_Input <> ""
+Application.ScreenUpdating = False
+    'Ðàñïîçíàâàíèå ÌÎ ïî èìåíè ôàéëà (î÷èñòêà îò ïðîáåëîâ è öèôð)
+    sFiles_Output = Left(sFiles_Input, Len(sFiles_Input) - 5)
+    For i = 0 To 9 Step 1
+        sFiles_Output = Replace(sFiles_Output, i, "")
+    Next i
+    sFiles_Output = Replace(sFiles_Output, "_", "")
+    TimeStamp = Day(Now) & "." & Month(Now) & "." & Year(Now) & "-" & Hour(Now) & "." & Minute(Now) & "." & Second(Now)
+    TimeStampTwo = Now()
+    LogCount = Cells(7, 2).Value ' íîâîå êîëè÷åñòâî çàïèñåé â ëîãå
+    LogLastRow = LogCount + 10 ' íîìåð ïîñëåäíåé ñòðîêè ëîãà
+    Application.StatusBar = "Îáðàáîòêà " & sFiles_Input
+    'ïðåçóìïöèÿ ïðàâèëüíîñòè
+    RRO_Status = True
+    Error_Sum = False
+    Error_NPA_Incorrect = False
+    Error_Code_RRO = False
+    Error_NPA_Exists = False
+    GP_Trigger = False
+    SP_Trigger = False
+    GO_Trigger = False
+    RzPr_Trigger = False
+    'ïðîâåðÿëñÿ ëè äàííûé ôàéë äî ýòîãî? Åñëè î íåì åñòü çàïèñü, òî ïåðåõîäèì ê ñëåäóþùåìó
+    If LogCount > 0 Then
+        For i = 1 To LogCount
+        'MsgBox sFiles_Input
+            If sFiles_Input = Cells(i + 10, 1).Value Then GoTo IveSeenThis
+        Next i
+    End If
+    ' ÎÏÐÅÄÅËÅÍÈÅ ÈÍÄÅÊÑÀ ÏÎ ÈÌÅÍÈ ÔÀÉËÀ äàëåå ðàáîòà ñ ÌÎ èäåò ïî íîìåðó èíäåêñà
+    i = 0
+    Do
+    i = i + 1
+    If i > 43 Then
+        MsgBox "Íåêîððåêòíîå èìÿ ôàéëà" & Chr(10) & Chr(10) & sFiles_Output & Chr(10) & Chr(10) & "Íàçîâèòå ôàéë â ôîðìàòå" & Chr(10) & " ""ÐÀÉÎÍ 1""," & Chr(10) & "ãäå ÐÀÉÎÍ - íàçâàíèå ÌÐ ÃÎ," & Chr(10) & " 1 - âåðñèÿ"
+    Exit Sub
+    Else
+    End If
+    Loop Until sFiles_Output Like "*" & MO(i, 0, 0, 0) & "*"
+    Current_MO_Index = i
+    'MsgBox sFiles_Output & "   " & MO(i, 0, 0, 0) & Current_MO_Index
+    
+   
+    'ÍÀ×ÀËÎ ÎÁÐÀÁÎÒÊÈ ÔÀÉËÀ
+    Workbooks.Open sFolder_Input & sFiles_Input
+    
+    'ÇÀÃÐÓÇÊÀ ÑÒÐÓÊÒÓÐÛ ÐÐÎ ÌÎ ÏÎ ÊÎÄÀÌ + ÏÐÎÂÅÐÊÀ ÍÀËÈ×Èß ÊÎÄÎÂ + ÇÀÏÈÑÈ ÎÁ ÎÒÑÓÒÑÒÂÓÞÙÈÕ ÊÎÄÀÕ Â ÌÀÑÑÈÂÅ
+    LastRow = ActiveSheet.UsedRange.Row - 1 + ActiveSheet.UsedRange.Rows.Count
+    ReDim RRO_Code(LastRow) As String
+    ReDim Errors(LastRow, 1) As String
+    
+    'Errors(each row,0) - error message,
+    'Errors(each row,1) - error type ("" - critical error, "1" - notification)
+    
+    ReDim Error_Count(LastRow) As Integer
+    ReDim NPA_Test(LastRow) As String
+    ' ïðîâåðêà ïî êîäàì ÐÐÎ
+    For i = Report_First_Line + 1 To LastRow
+    'MsgBox RRO_Code(i - Report_First_Line - 1)
+    If RRO_Code(i - Report_First_Line - 1) = CodeTOTAL Then Exit For
+    
+    
+    If Sheets(1).Cells(i, 2).MergeCells = True And IsEmpty(Sheets(1).Range("B" & i).MergeArea.Cells(1, 1).Value) Then
+            Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+            Errors(i - Report_First_Line - Merges_Count, 0) = Error_Count(i - Report_First_Line) & ". " & Errors(i - Report_First_Line, 0) & "Îøèáêà ïîäñòàíîâêè ÐÐÎ ïðè çàãðóçêå â áàçó ÌÔ ÒÎ. Ïðîâåðüòå äàííîå ÐÎ â âàøåì ñïðàâî÷íèêå âîïðîñîâ ìåñòíîãî çíà÷åíèÿ (Óáåäèòåñü, ÷òî âû êîððåêòíî ïðèñâîèëè êîä â ñîîòâåòñòâèè ñ óêàçàíèÿìè ÌÔ ÐÔ, óäàëèòå äóáëèêàòû êîäîâ ÐÎ, ïðîâåðüòå âûøåñòîÿùèé êîä è ïîðÿäêîâûé íîìåð ÐÎ)" & Chr(10) & "" & Chr(10)
+            Error_Code_RRO = True
+            Merges_Count = Merges_Count + 1
+            'MsgBox "RRO ERROR 1"
+    Else
+            Merges_Count = 0
+            
+    End If
+    
+    If Sheets(1).Cells(i, 2).MergeCells = False And IsEmpty(Sheets(1).Cells(i, 2).Value) Then
+        Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+        Errors(i - Report_First_Line, 0) = Error_Count(i - Report_First_Line) & ". " & Errors(i - Report_First_Line, 0) & "Îøèáêà ïîäñòàíîâêè ÐÐÎ ïðè çàãðóçêå â áàçó ÌÔ ÒÎ. Ïðîâåðüòå äàííîå ÐÎ â âàøåì ñïðàâî÷íèêå âîïðîñîâ ìåñòíîãî çíà÷åíèÿ (Óáåäèòåñü, ÷òî âû êîððåêòíî ïðèñâîèëè êîä â ñîîòâåòñòâèè ñ óêàçàíèÿìè ÌÔ ÐÔ, óäàëèòå äóáëèêàòû êîäîâ ÐÎ, ïðîâåðüòå âûøåñòîÿùèé êîä è ïîðÿäêîâûé íîìåð ÐÎ)" & Chr(10) & "" & Chr(10)
+        Error_Code_RRO = True
+        'MsgBox "RRO ERROR 2"
+        'MsgBox sFiles & "   " & i
+    Else
+    RRO_Code(i - Report_First_Line) = Sheets(1).Cells(i, 2).Value
+    End If
+            
+        If Len(RRO_Code(i - Report_First_Line)) = 4 Then
+      
+            RRO_Code_Dec(1) = _
+            (AscW(Left(RRO_Code(i - Report_First_Line), 1)) - 48) * 1000 + _
+            (AscW(Mid(RRO_Code(i - Report_First_Line), 2, 1)) - 48) * 100 + _
+            (AscW(Mid(RRO_Code(i - Report_First_Line), 3, 1)) - 48) * 10 + _
+            (AscW(Right(RRO_Code(i - Report_First_Line), 1)) - 48)
+            
+            'MsgBox RRO_Code(i - Report_First_Line) & "    code unicode:   " & RRO_Code_Dec(1)
+            
+            If RRO_Code_Dec(1) > RRO_Code_Dec(0) Then RRO_Code_Dec(0) = RRO_Code_Dec(1)
+            If RRO_Code_Dec(1) < RRO_Code_Dec(0) Then
+                Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+                Errors(i - Report_First_Line, 0) = Error_Count(i - Report_First_Line) & ". " & Errors(i - Report_First_Line, 0) & "Íàðóøåí ïîðÿäîê íàçíà÷åíèÿ êîäîâ ÐÐÎ. Çíà÷åíèå ïðåäûäóùåãî êîäà ïðåâûøàåò çíà÷åíèå òåêóùåãî. Óáåäèòåñü â òîì, ÷òî â ñïðàâî÷íèêå ""Âîïðîñû ìåñòíîãî çíà÷åíèÿ"" ïðàâèëüíî ïðîñòàâëåíû âûøåñòîÿùèå êîäû, à òàêæå îòñóòñòâóþò äóáëèêàòû êîäîâ." & Chr(10)
+                Error_Code_RRO = True
+            End If
+            
+           ' MsgBox "Code RRO " & RRO_Code(i - Report_First_Line) & Chr(10) & "RRO_Code_Dec(1) " & RRO_Code_Dec(1) & Chr(10) & "RRO_Code_Dec(0) " & RRO_Code_Dec(0)
+            
+            If (RRO_Code_Dec(1) > 2899 And RRO_Code_Dec(1) < 3799) Or (RRO_Code_Dec(1) > 6100 And RRO_Code_Dec(1) < 7799) Then
+                Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+                Errors(i - Report_First_Line - Merges_Count, 0) = Error_Count(i - Report_First_Line) & ". " & Errors(i - Report_First_Line, 0) & "Ê ñîæàëåíèþ â Òâåðñêîé îáëàñòè íåò ìóíèöèïàëèòåòîâ äàííîãî òèïà. Âåðîÿòíàÿ ïðè÷èíà îøèáêè - íåïðàâèëüíîå íàçíà÷åíèå êîäîâ â âàøåì ñïðàâî÷íèêå âîïðîñîâ ìåñòíîãî çíà÷åíèÿ. Ïðîñüáà ïðîâåðèòü ñïðàâî÷íèê ÂÌÇ" & Chr(10)
+                Error_Code_RRO = True
+            End If
+            'ïðîâåðêà "ìåðòâûõ" äèàïàçîíîâ
+            If (RRO_Code_Dec(1) > 5801 And RRO_Code_Dec(1) < 5900) Or _
+               (RRO_Code_Dec(1) > 1138 And RRO_Code_Dec(1) < 1200) Or _
+               (RRO_Code_Dec(1) > 2145 And RRO_Code_Dec(1) < 2200) Or _
+               (RRO_Code_Dec(1) > 2945 And RRO_Code_Dec(1) < 3000) Or _
+               (RRO_Code_Dec(1) > 3841 And RRO_Code_Dec(1) < 3900) Or _
+               (RRO_Code_Dec(1) > 3937 And RRO_Code_Dec(1) < 4000) Or _
+               (RRO_Code_Dec(1) > 4602 And RRO_Code_Dec(1) < 4700) Or _
+               (RRO_Code_Dec(1) > 4915 And RRO_Code_Dec(1) < 5000) Or _
+               (RRO_Code_Dec(1) > 5027 And RRO_Code_Dec(1) < 5100) Or _
+               (RRO_Code_Dec(1) > 5137 And RRO_Code_Dec(1) < 5200) Then
+                    Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+                    Errors(i - Report_First_Line - Merges_Count, 0) = Error_Count(i - Report_First_Line) & ". " & Errors(i - Report_First_Line, 0) & "Ñîãëàñíî ñïðàâî÷íèêó ÌÔ ÐÔ äîáàâëåíèå êîäîâ â äàííûé äèàïàçîí íå ïðåäóñìîòðåíî. Íåîáõîäèìî ïåðåíåñòè äàííûå ðàñõîäû." & Chr(10)
+                    Error_Code_RRO = True
+            End If
+            
+            
+            Dim Codestocheck(5) As Integer
+            If RRO_Code_Dec(1) = CInt(CodeGO) Then GO_Trigger = True
+            
+            
+            Select Case GO_Trigger
+            Case False
+            Codestocheck(1) = 1697
+            Codestocheck(2) = 1641
+            Codestocheck(3) = 1697
+            Codestocheck(4) = 1698
+            Codestocheck(5) = 1016
+            Case True
+            Codestocheck(1) = 2697
+            Codestocheck(2) = 2640
+            Codestocheck(3) = 2697
+            Codestocheck(4) = 2698
+            Codestocheck(5) = 2117
+            End Select
+            
+        'ïðîâåðêà îòäåëüíûõ êîäîâ ñóáâåíöèé
+        If RRO_Code_Dec(1) = Codestocheck(1) And Not Cells(i, 1).Value Like "*ïåðåïèñè*" Then
+        Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+        Errors(i - Report_First_Line - Merges_Count, 0) = Error_Count(i - Report_First_Line) & ". " & Errors(i - Report_First_Line, 0) & "Ïðîøó îòðàçèòü ñóáâåíöèè íà ïðîâåäåíèå ñåëüñêîõîçÿéñòâåííîé ïåðåïèñè ïî äàííîìó êîäó. Åñëè ó âàñ èõ íåò, òî ïðîøó åãî íå èñïîëüçîâàòü." & Chr(10)
+        Error_Code_RRO = True
+        End If
+        
+        'ïðîâåðêà ïåäðàáîòíèêîâ
+        If Cells(i, 1).Value Like "*ïåäàãîã*" And Not RRO_Code_Dec(1) = Codestocheck(2) Then
+        Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+        Errors(i - Report_First_Line - Merges_Count, 0) = Error_Count(i - Report_First_Line) & ". " & Errors(i - Report_First_Line, 0) & "Ïðîøó îòðàçèòü ñóáâåíöèè íà êîìïåíñàöèè ðàñõîäîâ ïåäàãîãè÷åñêèì ðàáîòíèêàì â ñåëüñêîé ìåñòíîñòè ïî êîäó " & Codestocheck(2) & " (ñì. ñïðàâî÷íèê ÌÔ ÐÔ)" & Chr(10)
+        Error_Code_RRO = True
+        End If
+        
+        If Cells(i, 1).Value Like "*ïåðåïèñè*" And Not RRO_Code_Dec(1) = Codestocheck(3) Then
+        Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+        Errors(i - Report_First_Line - Merges_Count, 0) = Error_Count(i - Report_First_Line) & ". " & Errors(i - Report_First_Line, 0) & "Â öåëÿõ îáåñïå÷åíèÿ öåëîñòíîñòè ðåãèîíàëüíîãî ñâîäà ðååñòðîâ, ïðîøó îòðàçèòü ñóáâåíöèè íà ïðîâåäåíèå ñåëüñêîõîçÿéñòâåííîé ïåðåïèñè ïî êîäó " & Codestocheck(3) & Chr(10)
+        Error_Code_RRO = True
+        End If
+        
+         If Cells(i, 1).Value Like "*ðîäèòåëü*" And Not RRO_Code_Dec(1) = Codestocheck(4) Then
+        Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+        Errors(i - Report_First_Line - Merges_Count, 0) = Error_Count(i - Report_First_Line) & ". " & Errors(i - Report_First_Line, 0) & "Â öåëÿõ îáåñïå÷åíèÿ öåëîñòíîñòè ðåãèîíàëüíîãî ñâîäà ðååñòðîâ, ïðîøó îòðàçèòü ñóáâåíöèè íà êîìïåíñàöèþ ðîäèòåëüñêîé ïëàòû ïî êîäó " & Codestocheck(4) & Chr(10)
+        Error_Code_RRO = True
+        End If
+        
+        If Not Cells(i, 1).Value Like "*ðîäèòåëü*" And Not RRO_Code_Dec(1) = Codestocheck(5) And Cells(i, 1).Value Like "*äîøêîëüíî*" Then
+        Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+        Errors(i - Report_First_Line - Merges_Count, 0) = Error_Count(i - Report_First_Line) & ". " & Errors(i - Report_First_Line, 0) & "Â ñâÿçè ñ òåì, ÷òî ñóáâåíöèè íà îáùåå îáðàçîâàíèå ÿâëÿþòñÿ èíûìè ìåæáþäæåòíûìè òðàíñôåðòàìè íà ðåàëèçàöèþ ïîëíîìî÷èé, êîòîðûå íå ïåðåäàíû, èõ íåîáõîäèìî îòðàçèòü ïî êîäó " & Codestocheck(5) & Chr(10)
+        Error_Code_RRO = True
+        End If
+        
+        If RRO_Code_Dec(1) = 1699 Or RRO_Code_Dec(1) = 2699 Then
+        Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+        Errors(i - Report_First_Line - Merges_Count, 0) = Error_Count(i - Report_First_Line) & ". " & Errors(i - Report_First_Line, 0) & "Äàííûé êîä ïðîøó îñòàâèòü ïóñòûì" & Codestocheck(5) & Chr(10)
+        Error_Code_RRO = True
+        End If
+        
+        'ïðîâåðêà ïî ïîäðàçäåëàì !!! Ïåðåñòàíåò ðàáîòàòü â ñëó÷àå, åñëè â ñïðàâî÷íèêå ïîìåíÿþòñÿ ìåñòàìè ñï, ãï, ãî, ÌÐ
+        'Select Case RRO_Code_Dec(1)
+        
+     '   Case Is > CInt(CodeSP)
+     '   MO_Type = 4
+      '  Case Is > CInt(CodeGP)
+      '  MO_Type = 3
+       ' Case Is > CInt(CodeGO)
+       ' MO_Type = 2
+        'Case Is > CInt(CodeMR)
+       ' MO_Type = 1
+       ' End Select
+        
+        
+        End If ' len RRO = 4
+        
+        
+        
+        
+        
+        If RRO_Code(i - Report_First_Line) <> "    " Or Not RRO_Code(i - Report_First_Line) = "" Then
+        RRO_Code_Dec(2) = RRO_Code_Dec(1)
+        
+       If RzPr_Switch = True Then
+            If RRO_Code_Dec(1) > CInt(CodeMR) And RRO_Code_Dec(2) < CInt(CodeGO) Then
+                MO_Type = 1
+            Else
+                If RRO_Code_Dec(1) > CInt(CodeGO) And RRO_Code_Dec(2) < CInt(CodeGP) Then
+                    MO_Type = 2
+                Else
+                    If RRO_Code_Dec(1) > CInt(CodeGP) And RRO_Code_Dec(2) < CInt(CodeSP) Then
+                    MO_Type = 3
+                    Else
+                        If RRO_Code_Dec(1) > CInt(CodeSP) And RRO_Code_Dec(2) < CInt(CodeTOTAL) Then
+                        MO_Type = 4
+                        End If
+                    End If
+                End If
+            End If
+        
+        'MsgBox RRO_Code_Dec(1) & " is " & MO_Type
+        
+        
+        For k = 1 To QRzPr
+        'MsgBox CStr(MO_Type) & MO_RzPr(0, 0, 0, 1, k) & Chr(10) & CStr(MO_Type) & Cells(i, RzPr_Col).Value
+            If MO_RzPr(0, 0, 0, 1, k) = CStr(MO_Type) & CStr(Cells(i, RzPr_Col).Value) Then
+            'MsgBox "Code:" & RRO_Code_Dec(1) & " is " & MO_Type & " RzPr" & Cells(i, RzPr_Col) & Chr(10) _
+            & "Subtract" & Cells(i, Plan_Prev_Col).Value & " from " & MO_RzPr(Current_MO_Index, MO_Type, 0, 1, k) & Chr(10) _
+            & "MO RzPr " & MO_RzPr(0, 0, 0, 1, k) & Chr(10) & " Cell value   " & MO_Type & Cells(i, RzPr_Col).Value
+            
+            MO_RzPr(Current_MO_Index, MO_Type, 0, 1, k) = MO_RzPr(Current_MO_Index, MO_Type, 0, 1, k) - Cells(i, Plan_Prev_Col).Value
+            
+            
+                        'If k = 83 Then
+                        'Debug_RzPr = Debug_RzPr & MO_RzPr(Current_MO_Index, 1, 0, 1, 83) & Chr(10) ' 0113 MR plan 2017
+                        'End If
+                        
+                        
+                        
+            'MsgBox "Îñòàòîê ïî êîäó" & MO_RzPr(0, 0, 0, 1, k) & Chr(10) & MO_RzPr(Current_MO_Index, MO_Type, 0, 1, k)
+            End If
+        Next k
+        For k = 1 To QRzPr
+            If MO_RzPr(0, 0, 0, 0, k) = CStr(MO_Type) & CStr(Cells(i, RzPr_Col).Value) Then
+            MO_RzPr(Current_MO_Index, MO_Type, 0, 0, k) = MO_RzPr(Current_MO_Index, MO_Type, 0, 0, k) - Cells(i, Fact_Prev_Col).Value
+            'MsgBox "Îñòàòîê ïî êîäó" & MO_RzPr(0, 0, 0, 0, k) & Chr(10) & MO_RzPr(Current_MO_Index, MO_Type, 0, 0, k)
+            End If
+        Next k
+        For k = 1 To QRzPr
+            If MO_RzPr(0, 0, 1, 1, k) = CStr(MO_Type) & CStr(Cells(i, RzPr_Col).Value) Then
+            MO_RzPr(Current_MO_Index, MO_Type, 1, 1, k) = MO_RzPr(Current_MO_Index, MO_Type, 1, 1, k) - Cells(i, Plan_Cur_Col).Value
+            'MsgBox "Îñòàòîê ïî êîäó" & MO_RzPr(0, 0, 1, 1, k) & Chr(10) & MO_RzPr(Current_MO_Index, MO_Type, 1, 1, k)
+            End If
+        Next k
+            
+        
+            
+            End If 'RzPr switch
+               End If ' len RRO = 4 (RZPR)
+   
+    
+   ' If RRO_Code(i - Report_First_Line - 1) <> "" And RRO_Code(i - Report_First_Line) <> "" Then
+   ' RRO_Code_Dec(1) = CInt(RRO_Code(i - Report_First_Line - 1))
+   ' RRO_Code_Dec(2) = CInt(RRO_Code(i - Report_First_Line))
+   ' Else
+   ' If RRO_Code(i - Report_First_Line) <> "1000" Or RRO_Code(i - Report_First_Line) <> "2000" Then
+   '     Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+   '     Errors(i - Report_First_Line - Merges_Count,0) = Error_Count(i - Report_First_Line) & ". " & Errors(i - Report_First_Line,0) & "Íàðóøåí ïîðÿäîê íàçíà÷åíèÿ êîäîâ ÐÐÎ" & Chr(10)
+   '     Error_Code_RRO = True
+   ' End If
+   ' End If
+    
+   ' If RRO_Code_Dec(2) < RRO_Code_Dec(1) Then
+   '     Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+    '    Errors(i - Report_First_Line - Merges_Count,0) = Error_Count(i - Report_First_Line) & ". " & Errors(i - Report_First_Line,0) & "Íàðóøåí ïîðÿäîê íàçíà÷åíèÿ êîäîâ ÐÐÎ" & Chr(10)
+    '    Error_Code_RRO = True
+   ' Else
+   '     If RRO_Code_Dec(2) > RRO_Code_Dec(1) Then RRO_Code_Dec(2) = RRO_Code_Dec(1)
+    
+    'End If
+    
+    
+    'ÏÐÎÂÅÐÊÀ ÑÓÌÌ (ïî êîäàì)
+    '________________________________________________________________________________________________________________________________________________
+    
+   ' If Error_Code_RRO = False Then '(ïðè óñëîâèè, ÷òî êîäû ÐÐÎ âñòàëè ïðàâèëüíî)
+    
+    Select Case RRO_Code(i - Report_First_Line)
+        Case CodeMR
+        MO_Type = 1
+         MO(Current_MO_Index, 1, 2, 1) = Cells(i, Plan_PlusOne_Col).Value
+            MO(Current_MO_Index, 1, 3, 1) = Cells(i, Plan_PlusTwo_Col).Value
+            MO(Current_MO_Index, 1, 4, 1) = Cells(i, Plan_PlusThree_Col).Value
+            If Current_MO_Index <> 25 Or Current_MO_Index <> 34 Or Current_MO_Index <> 40 Then
+                GP_Trigger = True
+                SP_Trigger = True
+            End If
+            
+            
+             If Cells(i, Plan_Prev_Col).Value <> MO(Current_MO_Index, MO_Type, 0, 1) _
+        Or Cells(i, Fact_Prev_Col).Value <> MO(Current_MO_Index, MO_Type, 0, 0) _
+        Or Cells(i, Plan_Cur_Col).Value <> MO(Current_MO_Index, MO_Type, 1, 1) Then
+            Error_Sum = True
+            Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+            Errors(i - Report_First_Line, 0) = Errors(i - Report_First_Line, 0) & Error_Count(i - Report_First_Line) & ". " & _
+            " Ïðîâåðüòå ñóììû. Ñîãëàñíî îò÷åòó ïî ôîðìå 0503317 íà 1 ìàÿ 2017 ã.:" & Chr(10) _
+            & "Ïëàí 2016 ãîäà:  " & MO(Current_MO_Index, MO_Type, 0, 1) & Chr(10) _
+            & "Ôàêò 2016 ãîäà:  " & MO(Current_MO_Index, MO_Type, 0, 0) & Chr(10) _
+            & "Ïëàí 2017 ãîäà:  " & MO(Current_MO_Index, MO_Type, 1, 1) & Chr(10) _
+                & "Â ñëó÷àå, åñëè íàðóøåíà ñòðóêòóðà ÐÎ, ëèáî îòñóòñâóþò íåêîòîðûå êîäû ÐÐÎ, òî ÷àñòü ðàñõîäíûõ îáÿçàòåëüñòâ ìîãóò íå âîéòè â ñóììû ïî èòîãîâûì ñòðîêàì" & Chr(10)
+            MO(Current_MO_Index, 1, 2, 1) = Cells(i, Plan_PlusOne_Col).Value
+            MO(Current_MO_Index, 1, 3, 1) = Cells(i, Plan_PlusTwo_Col).Value
+            MO(Current_MO_Index, 1, 4, 1) = Cells(i, Plan_PlusThree_Col).Value
+        End If
+            
+            
+        Case CodeGO
+        MO_Type = 2
+         MO(Current_MO_Index, 2, 2, 1) = Cells(i, Plan_PlusOne_Col).Value
+            MO(Current_MO_Index, 2, 3, 1) = Cells(i, Plan_PlusTwo_Col).Value
+            MO(Current_MO_Index, 2, 4, 1) = Cells(i, Plan_PlusThree_Col).Value
+            If GP_Trigger = True And Current_MO_Index <> 41 Then
+            Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+            Errors(i - Report_First_Line - Merges_Count, 0) = Error_Count(i - Report_First_Line) & ". " & Errors(i - Report_First_Line, 0) & "ÌÎ íå ìîæåò îäíîâðåìåííî ÿâëÿòüñÿ ÌÐ è ÃÎ" & Chr(10)
+            Error_Code_RRO = True
+            End If
+            
+             If Cells(i, Plan_Prev_Col).Value <> MO(Current_MO_Index, MO_Type, 0, 1) _
+        Or Cells(i, Fact_Prev_Col).Value <> MO(Current_MO_Index, MO_Type, 0, 0) _
+        Or Cells(i, Plan_Cur_Col).Value <> MO(Current_MO_Index, MO_Type, 1, 1) Then
+            Error_Sum = True
+            Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+            Errors(i - Report_First_Line, 0) = Errors(i - Report_First_Line, 0) & Error_Count(i - Report_First_Line) & ". " & _
+            " Ïðîâåðüòå ñóììû. Ñîãëàñíî îò÷åòó ïî ôîðìå 0503317 íà 1 ìàÿ 2017 ã.:" & Chr(10) _
+            & "Ïëàí 2016 ãîäà:  " & MO(Current_MO_Index, MO_Type, 0, 1) & Chr(10) _
+            & "Ôàêò 2016 ãîäà:  " & MO(Current_MO_Index, MO_Type, 0, 0) & Chr(10) _
+            & "Ïëàí 2017 ãîäà:  " & MO(Current_MO_Index, MO_Type, 1, 1) & Chr(10) _
+                & "Â ñëó÷àå, åñëè íàðóøåíà ñòðóêòóðà ÐÎ, ëèáî îòñóòñâóþò íåêîòîðûå êîäû ÐÐÎ, òî ÷àñòü ðàñõîäíûõ îáÿçàòåëüñòâ ìîãóò íå âîéòè â ñóììû ïî èòîãîâûì ñòðîêàì" & Chr(10)
+            MO(Current_MO_Index, 1, 2, 1) = Cells(i, Plan_PlusOne_Col).Value
+            MO(Current_MO_Index, 1, 3, 1) = Cells(i, Plan_PlusTwo_Col).Value
+            MO(Current_MO_Index, 1, 4, 1) = Cells(i, Plan_PlusThree_Col).Value
+        End If
+            
+            
+            
+        Case CodeGP
+        MO_Type = 3
+         GP_Trigger = False
+            MO(Current_MO_Index, 3, 2, 1) = Cells(i, Plan_PlusOne_Col).Value
+            MO(Current_MO_Index, 3, 3, 1) = Cells(i, Plan_PlusTwo_Col).Value
+            MO(Current_MO_Index, 3, 4, 1) = Cells(i, Plan_PlusThree_Col).Value
+            
+            
+             If Cells(i, Plan_Prev_Col).Value <> MO(Current_MO_Index, MO_Type, 0, 1) _
+        Or Cells(i, Fact_Prev_Col).Value <> MO(Current_MO_Index, MO_Type, 0, 0) _
+        Or Cells(i, Plan_Cur_Col).Value <> MO(Current_MO_Index, MO_Type, 1, 1) Then
+            Error_Sum = True
+            Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+            Errors(i - Report_First_Line, 0) = Errors(i - Report_First_Line, 0) & Error_Count(i - Report_First_Line) & ". " & _
+            " Ïðîâåðüòå ñóììû. Ñîãëàñíî îò÷åòó ïî ôîðìå 0503317 íà 1 ìàÿ 2017 ã.:" & Chr(10) _
+            & "Ïëàí 2016 ãîäà:  " & MO(Current_MO_Index, MO_Type, 0, 1) & Chr(10) _
+            & "Ôàêò 2016 ãîäà:  " & MO(Current_MO_Index, MO_Type, 0, 0) & Chr(10) _
+            & "Ïëàí 2017 ãîäà:  " & MO(Current_MO_Index, MO_Type, 1, 1) & Chr(10) _
+                & "Â ñëó÷àå, åñëè íàðóøåíà ñòðóêòóðà ÐÎ, ëèáî îòñóòñâóþò íåêîòîðûå êîäû ÐÐÎ, òî ÷àñòü ðàñõîäíûõ îáÿçàòåëüñòâ ìîãóò íå âîéòè â ñóììû ïî èòîãîâûì ñòðîêàì" & Chr(10)
+            MO(Current_MO_Index, 1, 2, 1) = Cells(i, Plan_PlusOne_Col).Value
+            MO(Current_MO_Index, 1, 3, 1) = Cells(i, Plan_PlusTwo_Col).Value
+            MO(Current_MO_Index, 1, 4, 1) = Cells(i, Plan_PlusThree_Col).Value
+        End If
+            
+        Case CodeSP
+        MO_Type = 4
+        SP_Trigger = False
+            MO(Current_MO_Index, 4, 2, 1) = Cells(i, Plan_PlusOne_Col).Value
+            MO(Current_MO_Index, 4, 3, 1) = Cells(i, Plan_PlusTwo_Col).Value
+            MO(Current_MO_Index, 4, 4, 1) = Cells(i, Plan_PlusThree_Col).Value
+            
+            
+             If Cells(i, Plan_Prev_Col).Value <> MO(Current_MO_Index, MO_Type, 0, 1) _
+        Or Cells(i, Fact_Prev_Col).Value <> MO(Current_MO_Index, MO_Type, 0, 0) _
+        Or Cells(i, Plan_Cur_Col).Value <> MO(Current_MO_Index, MO_Type, 1, 1) Then
+            Error_Sum = True
+            Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+            Errors(i - Report_First_Line, 0) = Errors(i - Report_First_Line, 0) & Error_Count(i - Report_First_Line) & ". " & _
+            " Ïðîâåðüòå ñóììû. Ñîãëàñíî îò÷åòó ïî ôîðìå 0503317 íà 1 ìàÿ 2017 ã.:" & Chr(10) _
+            & "Ïëàí 2016 ãîäà:  " & MO(Current_MO_Index, MO_Type, 0, 1) & Chr(10) _
+            & "Ôàêò 2016 ãîäà:  " & MO(Current_MO_Index, MO_Type, 0, 0) & Chr(10) _
+            & "Ïëàí 2017 ãîäà:  " & MO(Current_MO_Index, MO_Type, 1, 1) & Chr(10) _
+                & "Â ñëó÷àå, åñëè íàðóøåíà ñòðóêòóðà ÐÎ, ëèáî îòñóòñâóþò íåêîòîðûå êîäû ÐÐÎ, òî ÷àñòü ðàñõîäíûõ îáÿçàòåëüñòâ ìîãóò íå âîéòè â ñóììû ïî èòîãîâûì ñòðîêàì" & Chr(10)
+            MO(Current_MO_Index, 1, 2, 1) = Cells(i, Plan_PlusOne_Col).Value
+            MO(Current_MO_Index, 1, 3, 1) = Cells(i, Plan_PlusTwo_Col).Value
+            MO(Current_MO_Index, 1, 4, 1) = Cells(i, Plan_PlusThree_Col).Value
+        End If
+            
+            
+            
+        Case CodeTOTAL
+        MO_Type = 5
+        
+        
+        
+         If Cells(i, Plan_Prev_Col).Value <> MO(Current_MO_Index, MO_Type, 0, 1) _
+        Or Cells(i, Fact_Prev_Col).Value <> MO(Current_MO_Index, MO_Type, 0, 0) _
+        Or Cells(i, Plan_Cur_Col).Value <> MO(Current_MO_Index, MO_Type, 1, 1) Then
+            Error_Sum = True
+            Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+            Errors(i - Report_First_Line, 0) = Errors(i - Report_First_Line, 0) & Error_Count(i - Report_First_Line) & ". " & _
+            " Ïðîâåðüòå ñóììû. Ñîãëàñíî îò÷åòó ïî ôîðìå 0503317 íà 1 ìàÿ 2017 ã.:" & Chr(10) _
+            & "Ïëàí 2016 ãîäà:  " & MO(Current_MO_Index, MO_Type, 0, 1) & Chr(10) _
+            & "Ôàêò 2016 ãîäà:  " & MO(Current_MO_Index, MO_Type, 0, 0) & Chr(10) _
+            & "Ïëàí 2017 ãîäà:  " & MO(Current_MO_Index, MO_Type, 1, 1) & Chr(10) _
+            & "Â ñëó÷àå, åñëè íàðóøåíà ñòðóêòóðà ÐÎ, ëèáî îòñóòñâóþò íåêîòîðûå êîäû ÐÐÎ, òî ÷àñòü ðàñõîäíûõ îáÿçàòåëüñòâ ìîãóò íå âîéòè â ñóììû ïî èòîãîâûì ñòðîêàì" & Chr(10)
+            MO(Current_MO_Index, 1, 2, 1) = Cells(i, Plan_PlusOne_Col).Value
+            MO(Current_MO_Index, 1, 3, 1) = Cells(i, Plan_PlusTwo_Col).Value
+            MO(Current_MO_Index, 1, 4, 1) = Cells(i, Plan_PlusThree_Col).Value
+            'Errors(i - Report_First_Line, 1) = "1"
+        End If
+        
+        
+        Case CodeMR_Subvencii
+         MO_Type = 1
+        '            Or Cells(i, Fact_Prev_Col).Value <> MO_Subvencii(Current_MO_Index, MO_Type, 0, 0) - ôàêò ñóáâåíöèé îòëè÷àåòñÿ íà âåëè÷èíó âîçâðàòà
+        '& "Ôàêò 2016 ãîäà:  " & MO_Subvencii(Current_MO_Index, MO_Type, 0, 0) & "(ìîæåò îòëè÷àòüñÿ íà âåëè÷èíó âîçâðàòîâ)" & Chr(10) _
+
+
+        If Cells(i, Plan_Prev_Col).Value <> MO_Subvencii(Current_MO_Index, MO_Type, 0, 1) _
+            Or Cells(i, Plan_Cur_Col).Value <> MO_Subvencii(Current_MO_Index, MO_Type, 1, 1) Then
+                Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+                Errors(i - Report_First_Line, 0) = Errors(i - Report_First_Line, 0) & Error_Count(i - Report_First_Line) & ". " & _
+                " Ïðîâåðüòå ñóììû ñóáâåíöèé, ëèáî ïðåäîñòàâüòå ïîÿñíåíèÿ ïî îòêëîíåíèÿì. Ñîãëàñíî îò÷åòó ÌÔ ÒÎ îá èñïîëíåíèè áþäæåòà Òâåðñêîé îáëàñòè ñóììà ñóáâåíöèé ðàâíà:" & Chr(10) _
+                & "Ïëàí 2016 ãîäà:  " & MO_Subvencii(Current_MO_Index, MO_Type, 0, 1) & Chr(10) _
+                & "Ïëàí 2017 ãîäà:  " & MO_Subvencii(Current_MO_Index, MO_Type, 1, 1) & Chr(10) _
+                & "Â ñëó÷àå, åñëè íàðóøåíà ñòðóêòóðà ÐÎ, ëèáî îòñóòñâóþò íåêîòîðûå êîäû ÐÐÎ, òî ÷àñòü ðàñõîäíûõ îáÿçàòåëüñòâ ìîãóò íå âîéòè â ñóììû ïî èòîãîâûì ñòðîêàì. Äàííàÿ îøèáêà ÷àùå âñåãî ñâèäåòåëüñâóåò î òîì, ÷òî âû îòðàçèëè ñóáâåíöèè ïî íåïðàâèëüíîìó êîäó ÐÎ" & Chr(10)
+            Errors(i - Report_First_Line, 1) = "1"
+            End If
+        
+        Case CodeGO_Subvencii
+         MO_Type = 2
+        'Or Cells(i, Fact_Prev_Col).Value <> MO_Subvencii(Current_MO_Index, MO_Type, 0, 0) - ôàêò ñóáâåíöèé îòëè÷àåòñÿ íà âåëè÷èíó âîçâðàòà
+        '& "Ôàêò 2016 ãîäà:  " & MO_Subvencii(Current_MO_Index, MO_Type, 0, 0) & "(ìîæåò îòëè÷àòüñÿ íà âåëè÷èíó âîçâðàòîâ)" & Chr(10) _
+
+        
+        If Cells(i, Plan_Prev_Col).Value <> MO_Subvencii(Current_MO_Index, MO_Type, 0, 1) _
+            Or Cells(i, Plan_Cur_Col).Value <> MO_Subvencii(Current_MO_Index, MO_Type, 1, 1) Then
+                Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+                Errors(i - Report_First_Line, 0) = Errors(i - Report_First_Line, 0) & Error_Count(i - Report_First_Line) & ". " & _
+                " Ïðîâåðüòå ñóììû ñóáâåíöèé, ëèáî ïðåäîñòàâüòå ïîÿñíåíèÿ ïî îòêëîíåíèÿì. Ñîãëàñíî îò÷åòó ÌÔ ÒÎ îá èñïîëíåíèè áþäæåòà Òâåðñêîé îáëàñòè ñóììà ñóáâåíöèé ðàâíà:" & Chr(10) _
+                & "Ïëàí 2016 ãîäà:  " & MO_Subvencii(Current_MO_Index, MO_Type, 0, 1) & Chr(10) _
+                & "Ïëàí 2017 ãîäà:  " & MO_Subvencii(Current_MO_Index, MO_Type, 1, 1) & Chr(10) _
+                & "Â ñëó÷àå, åñëè íàðóøåíà ñòðóêòóðà ÐÎ, ëèáî îòñóòñâóþò íåêîòîðûå êîäû ÐÐÎ, òî ÷àñòü ðàñõîäíûõ îáÿçàòåëüñòâ ìîãóò íå âîéòè â ñóììû ïî èòîãîâûì ñòðîêàì. Äàííàÿ îøèáêà ÷àùå âñåãî ñâèäåòåëüñâóåò î òîì, ÷òî âû îòðàçèëè ñóáâåíöèè ïî íåïðàâèëüíîìó êîäó ÐÎ" & Chr(10)
+        Errors(i - Report_First_Line, 1) = "1"
+            End If
+        
+        Case CodeGP_Subvencii
+         MO_Type = 3
+        ' Or Cells(i, Fact_Prev_Col).Value <> MO_Subvencii(Current_MO_Index, MO_Type, 0, 0) - ôàêò ñóáâåíöèé îòëè÷àåòñÿ íà âåëè÷èíó âîçâðàòà
+        '& "Ôàêò 2016 ãîäà:  " & MO_Subvencii(Current_MO_Index, MO_Type, 0, 0) & "(ìîæåò îòëè÷àòüñÿ íà âåëè÷èíó âîçâðàòîâ)" & Chr(10) _
+
+        If Cells(i, Plan_Prev_Col).Value <> MO_Subvencii(Current_MO_Index, MO_Type, 0, 1) _
+            Or Cells(i, Plan_Cur_Col).Value <> MO_Subvencii(Current_MO_Index, MO_Type, 1, 1) Then
+                Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+                Errors(i - Report_First_Line, 0) = Errors(i - Report_First_Line, 0) & Error_Count(i - Report_First_Line) & ". " & _
+                "Ïðîâåðüòå ñóììû ñóáâåíöèé, ëèáî ïðåäîñòàâüòå ïîÿñíåíèÿ ïî îòêëîíåíèÿì. Ñîãëàñíî îò÷åòó ÌÔ ÒÎ îá èñïîëíåíèè áþäæåòà Òâåðñêîé îáëàñòè ñóììà ñóáâåíöèé ðàâíà:" & Chr(10) _
+                & "Ïëàí 2016 ãîäà:  " & MO_Subvencii(Current_MO_Index, MO_Type, 0, 1) & Chr(10) _
+                & "Ïëàí 2017 ãîäà:  " & MO_Subvencii(Current_MO_Index, MO_Type, 1, 1) & Chr(10) _
+                & "Â ñëó÷àå, åñëè íàðóøåíà ñòðóêòóðà ÐÎ, ëèáî îòñóòñâóþò íåêîòîðûå êîäû ÐÐÎ, òî ÷àñòü ðàñõîäíûõ îáÿçàòåëüñòâ ìîãóò íå âîéòè â ñóììû ïî èòîãîâûì ñòðîêàì. Äàííàÿ îøèáêà ÷àùå âñåãî ñâèäåòåëüñâóåò î òîì, ÷òî âû îòðàçèëè ñóáâåíöèè ïî íåïðàâèëüíîìó êîäó ÐÎ" & Chr(10)
+        Errors(i - Report_First_Line, 1) = "1"
+            End If
+        
+        Case CodeSP_Subvencii
+         MO_Type = 4
+        ' Or Cells(i, Fact_Prev_Col).Value <> MO_Subvencii(Current_MO_Index, MO_Type, 0, 0) - ôàêò ñóáâåíöèé îòëè÷àåòñÿ íà âåëè÷èíó âîçâðàòà
+        '                & "Ôàêò 2016 ãîäà:  " & MO_Subvencii(Current_MO_Index, MO_Type, 0, 0) & "(ìîæåò îòëè÷àòüñÿ íà âåëè÷èíó âîçâðàòîâ)" & Chr(10) _
+
+        
+        
+        If Cells(i, Plan_Prev_Col).Value <> MO_Subvencii(Current_MO_Index, MO_Type, 0, 1) _
+            Or Cells(i, Plan_Cur_Col).Value <> MO_Subvencii(Current_MO_Index, MO_Type, 1, 1) Then
+                Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+                Errors(i - Report_First_Line, 0) = Errors(i - Report_First_Line, 0) & Error_Count(i - Report_First_Line) & ". " & _
+                "Ïðîâåðüòå ñóììû ñóáâåíöèé, ëèáî ïðåäîñòàâüòå ïîÿñíåíèÿ ïî îòêëîíåíèÿì. Ñîãëàñíî îò÷åòó ÌÔ ÒÎ îá èñïîëíåíèè áþäæåòà Òâåðñêîé îáëàñòè ñóììà ñóáâåíöèé ðàâíà:" & Chr(10) _
+                & "Ïëàí 2016 ãîäà:  " & MO_Subvencii(Current_MO_Index, MO_Type, 0, 1) & Chr(10) _
+                & "Ïëàí 2017 ãîäà:  " & MO_Subvencii(Current_MO_Index, MO_Type, 1, 1) & Chr(10) _
+                & "Â ñëó÷àå, åñëè íàðóøåíà ñòðóêòóðà ÐÎ, ëèáî îòñóòñâóþò íåêîòîðûå êîäû ÐÐÎ, òî ÷àñòü ðàñõîäíûõ îáÿçàòåëüñòâ ìîãóò íå âîéòè â ñóììû ïî èòîãîâûì ñòðîêàì. Äàííàÿ îøèáêà ÷àùå âñåãî ñâèäåòåëüñâóåò î òîì, ÷òî âû îòðàçèëè ñóáâåíöèè ïî íåïðàâèëüíîìó êîäó ÐÎ." & Chr(10)
+        Errors(i - Report_First_Line, 1) = "1"
+            End If
+        
+        
+        Case Else
+       
+     End Select
+    ' End If ' óñëîâèå - îòñóòñòâèå îøèáîê ÐÐÎ
+      If RRO_Code(i - Report_First_Line) = CodeTOTAL And (GP_Trigger = True Or SP_Trigger = True) Then
+        Errors(i - Report_First_Line + 3, 0) = " Îòñóòñòâóþò èòîãè ÐÎ ïî Ãîðäñêèì è/èëè ñåëüñêèì ïîñåëåíèÿì âàøåãî ðàéîíà (êîäû " & CodeGP & ", " & CodeSP & ")" & Chr(10)
+    End If
+    
+    'ÑÓÌÌÛ ÏÐÎÂÅÐÅÍÛ
+    'ÇÀÃÐÓÇÊÀ ÐÅÃ. è ÔÅÄ ÍÏÀ ÈÇ ÂÛÃÐÓÇÊÈ ÄËß ÏÐÎÂÅÐÊÈ
+    If RRO_Code(i - Report_First_Line) <> "" Then
+        If Sheets(1).Range(Cells(i, 2), Cells(i, 2)).MergeCells = True Then
+        Merged_Cells_Count = Sheets(1).Range(Cells(i, 2), Cells(i, 2)).MergeArea.Rows.Count
+            For j = 1 To Merged_Cells_Count
+                NPA_Test(i - Report_First_Line) = NPA_Test(i - Report_First_Line) & Cells(i + j - 1, NPA_Col_One).Value & Cells(i + j - 1, NPA_Col_Two).Value & Cells(i + j - 1, NPA_Col_Three).Value & Cells(i + j - 1, NPA_Col_Four).Value
+            Next j
+            
+        Else
+            NPA_Test(i - Report_First_Line) = NPA_Test(i - Report_First_Line) & Cells(i, NPA_Col_One).Value & Cells(i, NPA_Col_Two).Value & Cells(i, NPA_Col_Three).Value & Cells(i, NPA_Col_Four).Value
+        End If
+    End If
+    'ïðîâåðêà íàëè÷èÿ ôåä è ðåã. íïà (õîòÿ áû îäèí èç íèõ äîëæåí áûòü)
+    'MsgBox i & Chr(10) & "NPA TEST " & NPA_Test(i - Report_First_Line)
+    
+    
+    If RRO_Code(i - Report_First_Line) <> "" And NPA_Test(i - Report_First_Line) = "" Then
+        For j = 1 To Last_Row_Whitelist_NPA
+        If RRO_Code(i - Report_First_Line) = Whitelist_NPA(j) Then GoTo ItIsOnTheWhitelist
+        Next j
+        Error_NPA_Exists = True
+        Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+        Errors(i - Report_First_Line, 0) = Errors(i - Report_First_Line, 0) & Error_Count(i - Report_First_Line) & ". " & _
+        "Íå óêàçàíû ðåãèîíàëüíûå è/èëè ôåäåðàëüíûå ÍÏÀ" & Chr(10)
+        Errors(i - Report_First_Line, 1) = "2"
+        'MsgBox i & "NPA ERROR"
+        End If
+ItIsOnTheWhitelist:
+    'ÍÀËÈ×ÈÅ ÍÏÀ ÏÐÎÂÅÐÅÍÎ
+    'ÏÐÎÂÅÐÊÀ ÓÊÀÇÀÍÈß ÏÐÀÂÈËÜÍÛÕ ÍÏÀ ÏÎ ÊÎÄÀÌ ÑÓÁÂÅÍÖÈÉ
+    For j = 1 To Last_Row_NPA_List
+    If NPA_Control(j, 1) = RRO_Code(i - Report_First_Line) Then
+    If Not (NPA_Test(i - Report_First_Line) Like "*" & NPA_Control(j, 2) & "*") Or Not (NPA_Test(i - Report_First_Line) Like "*" & NPA_Control(j, 3) & "*") Or Not (NPA_Test(i - Report_First_Line) Like "*" & NPA_Control(j, 4) & "*") Then
+    Error_NPA_Incorrect = True
+    Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+    Errors(i - Report_First_Line, 0) = Errors(i - Report_First_Line, 0) & Error_Count(i - Report_First_Line) & ". " & "Íå óêàçàí ÍÏÀ îò" & NPA_Control(j, 2) & " ¹ " & NPA_Control(j, 3) & ", êëþ÷åâûå ñëîâà â íàèìåíîâàíèè: " & NPA_Control(j, 4) & Chr(10) & " . Åñëè äàííîãî ÍÏÀ íåò â âàøåì ñïðàâî÷íèêå, îáðàòèòåñü ê Ïóãîâêèíîé." & Chr(10)
+    Errors(i - Report_First_Line, 1) = "2"
+    End If
+    End If
+    Next j
+    'ÍÏÀ ÏÎ ÑÓÁÂÅÍÖÈßÌ ÏÐÎÂÅÐÅÍÛ
+
+    
+    Next i
+    
+    
+    
+    
+    'ÂÅÐÄÈÊÒ
+    If Error_Sum = True Or Error_NPA_Incorrect = True Or Error_Code_RRO = True Or Error_NPA_Exists = True Or GP_Trigger = True Or SP_Trigger = True Then
+    RRO_Status = False
+    Status = "Çàìå÷àíèå"
+    Else
+    Status = "Ïðèíÿòî"
+    End If
+    ' ÔÎÐÌÈÐÎÂÀÍÈÅ ÔÀÉËÀ ÇÀÌÅ×ÀÍÈÉ
+    If RRO_Status = False Then
+    'Ôîðìàòèðîâàíèå ñòîëáöà çàìå÷àíèé (22)
+    With Range(Cells(Report_First_Line - 1, Report_Error_Col), Cells(LastRow, Report_Error_Col))
+    .ColumnWidth = 50
+    .Interior.Color = 65535
+    .WrapText = True
+    End With
+    
+    Cells(Report_First_Line - 1, Report_Error_Col + 1).Value = "Òèïû îøèáîê ïî öâåòàì:"
+    Cells(Report_First_Line, Report_Error_Col + 1).Value = "Êðèòè÷åñêàÿ îøèáêà"
+    Cells(Report_First_Line + 1, Report_Error_Col + 1).Value = "Óâåäîìëåíèå (ïðîñüáà îáðàòèòü âíèìàíèå)"
+    Cells(Report_First_Line + 2, Report_Error_Col + 1).Value = "Îøèáêà ÍÏÀ. Åñëè âû óâåðåíû, ÷òî ó âàñ ïðàâèëüíî ïðîñòàâëåíû ÍÏÀ, ìîæåòå èãíîðèðîâàòü òàêèå çàìå÷àíèÿ."
+
+    
+    With Range(Cells(Report_First_Line, Report_Error_Col + 1), Cells(Report_First_Line, Report_Error_Col + 1))
+    .ColumnWidth = 50
+    .Interior.Color = 255
+    .Font.Size = 14
+    .Font.Name = "Tahoma"
+    .WrapText = True
+     .EntireRow.AutoFit
+    
+    End With
+    With Range(Cells(Report_First_Line + 1, Report_Error_Col + 1), Cells(Report_First_Line + 1, Report_Error_Col + 1))
+    .Interior.ColorIndex = 45
+    .Font.Size = 14
+    .Font.Name = "Tahoma"
+    .WrapText = True
+     .EntireRow.AutoFit
+    
+    End With
+    
+    With Range(Cells(Report_First_Line + 2, Report_Error_Col + 1), Cells(Report_First_Line + 2, Report_Error_Col + 1))
+    .Interior.ColorIndex = 22
+    .Font.Size = 14
+    .Font.Name = "Tahoma"
+    .WrapText = True
+     .EntireRow.AutoFit
+    
+    End With
+    
+    Sheets(1).Range(Cells(Report_First_Line - 1, 1), Cells(Report_First_Line - 1, 1)).RowHeight = 32
+    Cells(Report_First_Line - 1, Report_Error_Col).Value = "Çàìå÷àíèÿ"
+    With Range(Cells(Report_First_Line - 1, Report_Error_Col), Cells(Report_First_Line - 1, Report_Error_Col))
+    .HorizontalAlignment = xlCenter
+    .Font.Size = 20
+    .Font.Bold = True
+    End With
+    ' òåêñò çàìå÷àíèé ïî êàæäîìó êîäó ÐÐÎ
+    For i = Report_First_Line + 1 To LastRow
+    If Errors(i - Report_First_Line, 0) <> "" Then
+    Error_Rows = Error_Rows + 1
+    Cells(i, Report_Error_Col).Value = Error_Rows & "." & Errors(i - Report_First_Line, 0)
+    With Range(Cells(i, Report_Error_Col), Cells(i, Report_Error_Col))
+    
+    If Errors(i - Report_First_Line, 1) = "2" Then
+    .Interior.ColorIndex = 22
+    End If
+    If Errors(i - Report_First_Line, 1) = "1" Then
+    .Interior.ColorIndex = 45
+    End If
+    If Errors(i - Report_First_Line, 1) = "" Then
+    .Interior.Color = 255
+    End If
+    .EntireRow.AutoFit
+    .Font.Size = 14
+    .Font.Name = "Tahoma"
+    End With
+    End If
+    Next i
+    End If
+    Error_Rows = 0
+    Range("V24").Select
+    'îáíóëåíèå ôàéëîâûõ ïåðåìåííûõ
+    RRO_Code_Dec(0) = 0 '
+    ' îò÷åò ïî ïîäðàçäåëàì
+    If RzPr_Switch = True Then
+    With ActiveWorkbook
+    Set WS = .Worksheets.Add(after:=.Sheets(.Sheets.Count))
+    End With
+    
+    
+    For k = 1 To QRzPr
+    For j = 1 To 4
+    
+    If Round(MO_RzPr(Current_MO_Index, j, 0, 1, k), 2) <> 0 Then RzPr_Trigger = True
+    If Round(MO_RzPr(Current_MO_Index, j, 0, 0, k), 2) <> 0 Then RzPr_Trigger = True
+    If Round(MO_RzPr(Current_MO_Index, j, 1, 1, k), 2) <> 0 Then RzPr_Trigger = True
+    
+    Next j
+    Next k
+    
+    'If RzPr_Trigger = True Then
+    ' Error_Count(i - Report_First_Line) = Error_Count(i - Report_First_Line) + 1
+    'Errors(i - Report_First_Line, 0) = Errors(Report_First_Line, 0) & Error_Count(i - Report_First_Line) & "Ñòðóêòóðà ÐÐÎ ïî ïîäðàçäåëàì íå ñîâïàäàåò ñ 317 ôîðìîé" & Chr(10)
+    'End If 'íå ñòàë ðàçáèðàòüñÿ, êàê èäåò íóìåðàöèÿ îøèáîê çäåñü
+    
+    WS.Name = "Èòîãè ïðîâåðêè ÐçÏð"
+    If RzPr_Trigger = False Then
+    
+    WS.Tab.Color = vbGreen
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(4, 2).Value = "Ñòðóêòóðà ðååñòðà ïî ïîäðàçäåëàì ïîëíîñòüþ ñîâïàäàåò ñ 317 ôîðìîé"
+     Else
+     WS.Tab.Color = vbRed
+    
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(1, 1).Value = "Ñóììû â äàííîé òàáëèöå ïîëó÷åíû âû÷èòàíèåì ñîîòâåòñòâóþùèõ ñóìì âàøåãî ÐÐÎ èç îò÷åòà ïî 317 ôîðìå"
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(2, 1).Value = "Ïîäðàçäåë"
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(2, 7).Value = "Ïîäðàçäåë"
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(2, 13).Value = "Ïîäðàçäåë"
+    For k = 1 To QRzPr
+    
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(k + 3, 1).Value = Right(MO_RzPr(0, 0, 0, 1, k), 4)
+    
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(2, 2).Value = "Îòêëîíåíèÿ ïî ÌÐ Ïëàí îò÷åòíûé ãîä"
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(k + 3, 2).Value = Round(MO_RzPr(Current_MO_Index, 1, 0, 1, k), 2)
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(2, 3).Value = "Îòêëîíåíèÿ ïî ÃÎ Ïëàí n-1"
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(k + 3, 3).Value = Round(MO_RzPr(Current_MO_Index, 2, 0, 1, k), 2)
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(2, 4).Value = "Îòêëîíåíèÿ ïî ÃÏ Ïëàí n-1"
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(k + 3, 4).Value = Round(MO_RzPr(Current_MO_Index, 3, 0, 1, k), 2)
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(2, 5).Value = "Îòêëîíåíèÿ ïî ÑÏ Ïëàí n-1"
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(k + 3, 5).Value = Round(MO_RzPr(Current_MO_Index, 4, 0, 1, k), 2)
+    
+    
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(k + 3, 7).Value = Right(MO_RzPr(0, 0, 0, 0, k), 4)
+    
+    
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(2, 8).Value = "Îòêëîíåíèÿ ïî ÌÐ Ôàêò îò÷åòíûé ãîä"
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(k + 3, 8).Value = Round(MO_RzPr(Current_MO_Index, 1, 0, 0, k), 2)
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(2, 9).Value = "Îòêëîíåíèÿ ïî ÃÎ Ôàêò n-1"
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(k + 3, 9).Value = Round(MO_RzPr(Current_MO_Index, 2, 0, 0, k), 2)
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(2, 10).Value = "Îòêëîíåíèÿ ïî ÃÏ Ôàêò n-1"
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(k + 3, 10).Value = Round(MO_RzPr(Current_MO_Index, 3, 0, 0, k), 2)
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(2, 11).Value = "Îòêëîíåíèÿ ïî ÑÏ Ôàêò n-1"
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(k + 3, 11).Value = Round(MO_RzPr(Current_MO_Index, 4, 0, 0, k), 2)
+    
+    
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(k + 3, 13).Value = Right(MO_RzPr(0, 0, 1, 1, k), 4)
+    
+     ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(2, 14).Value = "Îòêëîíåíèÿ ïî ÌÐ Ïëàí òåêóùèé ãîä"
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(k + 3, 14).Value = Round(MO_RzPr(Current_MO_Index, 1, 1, 1, k), 2)
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(2, 15).Value = "Îòêëîíåíèÿ ïî ÃÎ Ïëàí n"
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(k + 3, 15).Value = Round(MO_RzPr(Current_MO_Index, 2, 1, 1, k), 2)
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(2, 16).Value = "Îòêëîíåíèÿ ïî ÃÏ Ïëàí n"
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(k + 3, 16).Value = Round(MO_RzPr(Current_MO_Index, 3, 1, 1, k), 2)
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(2, 17).Value = "Îòêëîíåíèÿ ïî ÑÏ Ïëàí n"
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(k + 3, 17).Value = Round(MO_RzPr(Current_MO_Index, 4, 1, 1, k), 2)
+    Next k
+    'MsgBox QRzPr
+   ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Columns("A:Q").ColumnWidth = 13
+   
+   
+   
+    For k = QRzPr + 3 To 4 Step -1
+    
+    If WorksheetFunction.Sum( _
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Range(Cells(k, 2), Cells(k, 5)), _
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Range(Cells(k, 8), Cells(k, 11)), _
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Range(Cells(k, 14), Cells(k, 17))) = 0 _
+    Then Rows(k).EntireRow.Delete
+    
+    Next k
+    End If 'if error RzPr
+    
+    
+    
+    
+    ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Range("A2:Q2").WrapText = True
+    
+    
+    ActiveWorkbook.Sheets(1).Select
+    End If 'RzPr switch
+    'ActiveWorkbook.Sheets("Èòîãè ïðîâåðêè ÐçÏð").Cells(1, 19) = Debug_RzPr
+    ActiveWorkbook.SaveAs Filename:=sFolder_Output & sFiles_Output & "-" & Status & "-" & TimeStamp & ".xlsx", FileFormat:=51
+    ActiveWorkbook.Close False
+    '---------------------------------------------------------------------------------------------------------------------------------------------------------
+    'ÇÀÂÅÐØÅÍÈÅ ÔÎÐÌÈÐÎÂÀÍÈß ÔÀÉËÀ
+    
+    'ÇÀÏÈÑÜ ÇÍÀ×ÅÍÈÉ ÏËÀÍÎÂÎÃÎ ÏÅÐÈÎÄÀ
+    If RRO_Status = True Then
+    For i = 1 To 4
+    For j = 2 To 4
+    Sheets("2").Cells(7 + Current_MO_Index, 18 + i).Value = MO(Current_MO_Index, 1, j, 1)
+    Sheets("2").Cells(7 + Current_MO_Index, 23 + i).Value = MO(Current_MO_Index, 1, j, 1)
+    Sheets("2").Cells(7 + Current_MO_Index, 28 + i).Value = MO(Current_MO_Index, 1, j, 1)
+    Next j
+    Next i
+    End If
+    
+    
+    'ÇÀÏÈÑÈ Â ËÎÃÅ
+    Sheets(1).Cells(LogLastRow + 1, 1).Value = sFiles_Input
+    Sheets(1).Cells(LogLastRow + 1, 2).Value = Sheets(1).Cells(Current_MO_Index + 7, 15).Value
+    Sheets(1).Cells(LogLastRow + 1, 3).Value = sFiles_Output
+    Sheets(1).Cells(LogLastRow + 1, 4).Value = Status
+    
+    If RzPr_Trigger = True Then
+    With Sheets("1").Range("E" & LogLastRow + 1)
+    .ClearComments
+    .AddComment
+    .Comment.Text "Ñòðóêòóðà ÐçÏð ÐÐÎ íå ñîâïàäàåò ñ 317 ôîðìîé. Èíôîðìàöèÿ ïî îòêëîíåíèÿì â ôàéëå çàìå÷àíèé"
+    End With
+    End If
+    
+    Sheets("1").Cells(LogLastRow + 1, 5).Value = Error_Sum
+    Sheets("1").Cells(LogLastRow + 1, 6).Value = Error_NPA_Incorrect
+    Sheets("1").Cells(LogLastRow + 1, 7).Value = Error_NPA_Exists
+    Sheets("1").Cells(LogLastRow + 1, 8).Value = Error_Code_RRO
+    Sheets("1").Cells(LogLastRow + 1, 9).Value = GP_Trigger & "/" & SP_Trigger
+    Sheets("1").Cells(LogLastRow + 1, 10).Value = TimeStampTwo
+    
+    'ÈÇÌÅÍÅÍÈÅ ÑÒÀÒÓÑÀ Â ÐÅÇÓËÜÒÀÒÅ
+    Sheets("1").Cells(Current_MO_Index + 7, 16).Value = Status
+    Sheets("1").Cells(Current_MO_Index + 7, 17).Value = TimeStampTwo
+    
+    'ÔÎÐÌÀÒÈÐÎÂÀÍÈÅ ÍÎÂÎÉ ÑÒÐÎÊÈ ËÎÃÀ
+    With Sheets("1").Range("A" & LogLastRow + 1, "J" & LogLastRow + 1)
+        .Borders.LineStyle = True
+        .Font.Name = "Tahoma"
+        .HorizontalAlignment = xlRight
+        .Font.Size = 11
+    End With
+     ' StartX = Range("K" & LogLastRow + 1).Left + 5
+      ' StartY = Range("K" & LogLastRow + 1).Width / 2
+     ' EndX = Range("K" & LogLastRow + 1).Top + 2
+     '  EndY = Range("K" & LogLastRow + 1).Height / 1.2
+       
+    '   Sheets("1").Shapes.AddShape(msoShapeNoSymbol, StartX, EndX, StartY, EndY).Select
+       
+    '   With Selection.ShapeRange.Fill
+     '       .Visible = msoTrue
+     '       .ForeColor.RGB = RGB(255, 0, 0)
+     '       .Transparency = 0
+     '      .Solid
+     '  End With
+     '  With Selection.ShapeRange.Line
+     '       .Visible = msoTrue
+     '       .ForeColor.RGB = RGB(255, 0, 0)
+     '       .Transparency = 0
+     '   End With
+    sFiles_Added_Counter = sFiles_Added_Counter + 1
+    '--------------------------------------------------------------------------------------------------------------------------
+    'ÑËÅÄÓÞÙÈÉ ÔÀÉË
+IveSeenThis:
+    sFiles_Input = Dir
+    Application.ScreenUpdating = True
+Loop
+'--------------------------------------------------------------------------------------------------------------------------
+'ÂÑÅ ÔÀÉËÛ ÎÁÐÀÁÎÒÀÍÛ
+FinishHim:
+TimeStampEnd = Now()
+Duration = Minute(TimeStampEnd - TimeStampBegin) & " ì. " & Second(TimeStampEnd - TimeStampBegin) & " ñ."
+Application.ScreenUpdating = True
+Application.StatusBar = False
+Select Case sFiles_Added_Counter
+Case 0
+MsgBox "Íîâûõ ôàéëîâ íå îáíàðóæåíî"
+Case 1
+MsgBox "Îáðàáîòàí " & sFiles_Added_Counter & " ôàéë" & Chr(10) & "Íà÷àëî:" & TimeStampBegin & Chr(10) & "Îêîí÷àíèå:" & TimeStampEnd & Chr(10) & "Ïðîäîëæèòåëüíîñòü: " & Duration
+Case 2, 3, 4, 5
+MsgBox "Îáðàáîòàíî " & sFiles_Added_Counter & " ôàéëà" & Chr(10) & "Íà÷àëî:" & TimeStampBegin & Chr(10) & "Îêîí÷àíèå:" & TimeStampEnd & Chr(10) & "Ïðîäîëæèòåëüíîñòü: " & Duration
+Case Else
+MsgBox "Îáðàáîòàíî " & sFiles_Added_Counter & " ôàéëîâ" & Chr(10) & "Íà÷àëî:" & TimeStampBegin & Chr(10) & "Îêîí÷àíèå:" & TimeStampEnd & Chr(10) & "Ïðîäîëæèòåëüíîñòü: " & Duration
+End Select
+
+
+End Sub
